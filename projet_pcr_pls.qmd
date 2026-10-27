@@ -1,0 +1,872 @@
+---
+title: "Modélisation prédictive de l'octroi de crédits bancaires : Application des régressions PCR et PLS"
+
+author: "DAGBO Elisée & Ly Néné Gallé"
+editor: visual
+format:
+  pdf:
+    toc: true
+    number-sections: true
+
+execute:
+  echo: false
+  warning: false
+  message: false
+---
+
+# Introduction
+
+L’évaluation de crédits bancaires constitue une etape importante de l'octroi de credit. Pour les institutions bancaires, la capacité à estimer avec précision le montant d'un prêt qu'un client est en mesure d'assumer représente un enjeu majeur. C'est dans ce contexte que s'inscrit notre projet d'étude, dont l'objectif principal est de concevoir un modèle prédictif robuste capable d'estimer de manière fiable le montant d'un prêt accordé (Montant_Pret), en fonction du profil de l'emprunteur.
+
+Pour mener à bien cette analyse, nous avions pris notre base utilisée pour le projet d'analyse de donnée. Outre notre variable cible (Montant_Pret), nous avions des indicateurs de financiers (Revenu_Mensuel, Depenses_Mensuelles, Mensualite_Pret), des indicateurs de capital (Epargne), des métriques de risque bancaire (Score_Credit, Ratio_Dette_Revenu, Ratio_Epargne_Revenu), ainsi que les caractéristiques structurelles du crédit (Duree_Pret_Mois, Taux_Interet_Pret) et l'âge de l'emprunteur.
+
+Pour donc repondre à l'objectif de ce projet nous avions utilisé la Régression sur Composantes Principales (PCR) et la Régression par Moindres Carrés Partiels (PLS).
+
+
+# Exploration et Préparation de données
+
+Afin de pouvoir évaluer la capacité de généralisation de nos futurs modèles, nous avons divisé notre base de données comme suit : 70 % des données assignées à la base d'apprentissage et les 30 % restants à la base de test. Dans un premier temps, nous avons exploré visuellement la distribution de nos variables. Nous avons constaté que l'âge ou le score de crédit sont bien équilibrés mais les variables financières sont asymétriques. Plus particulièrement, notre variable à expliquer, le montant du prêt (Montant_Pret), présente une distribution fortement asymétrique vers la droite. On y observe un pic de petits emprunts concentrés entre 10 000 et 20 000, suivi d'une très longue queue s'étirant vers les prêts dépassant les 400 000 *(Annexe 1)*. 
+
+Face à cela et pour respecter les hypothèses sous-jacentes de nos modèles de régression, nous avons décidé de transformer notre variable cible en lui appliquant une racine carrée (Montant_Pret_sqrt). Cette démarche nous a permis de réduire efficacement l'asymétrie extrême, de rendre la distribution beaucoup plus compacte (sur une échelle de 0 à 600) et de stabiliser la variance globale *(Annexe 2)*. Suite à cette transformation, nous nous sommes penchés sur la présence de potentielles valeurs atypiques. L'analyse par boxplots complèté par le test de Rosner (k=10) nous a permis de révéler quatre montant de prêts extrêmement élevés. Cependant, après avoir observé les boxplots des données transformées, nous avons constaté que la racine carrée avait parfaitement stabilisé ces points, les faisant disparaître de la catégorie des valeurs aberrantes *(Annexe 3)*. Après ce résultat, nous avons fait le choix méthodologique de conserver l'intégralité des observations. Cela nous garantit de préserver l'information sur nos emprunteurs importants, tout en assurant une parfaite comparabilité entre nos modèles exécutés avec ou sans transformation.
+
+Ensuite, pour valider définitivement ce choix de transformation, nous avons analysé la distribution des erreurs de prédiction (résidus). Sans transformation, les résidus affichaient une distribution très asymétrique avec d'importantes valeurs extrêmes (± 15 000) et un test de Shapiro-Wilk rejetant massivement la normalité (W = 0.921, p = 2.2e-10). En revanche, avec l'application de la racine carrée, l'histogramme des résidus s'est recentré sur zéro de façon quasi-normale *(Annexe 4)*, et la statistique de Shapiro-Wilk a montré une amélioration spectaculaire (W = 0.980, p = 0.0013).
+
+Ensuite, nous avons cherché à comprendre les relations entre nos variables explicatives en réalisant une matrice de corrélation de Pearson *(Annexe 5)*. Nous avons remarqué que le montant emprunté augmente logiquement avec le revenu (0.35) ou la durée (0.36), mais surtout avec la mensualité du prêt (0.70). Par ailleurs, le taux d'intérêt présente une corrélation négative modérée (-0.43) avec notre variable à expliquer, suggérant que les gros emprunteurs bénéficient de taux légèrement plus faibles. Toutefois, nous avons également repéré que nos composantes budgétaires étaient extrêmement corrélées entre elles (par exemple, une corrélation de 0.80 entre le revenu et les dépenses, ou entre le ratio d'endettement et la mensualité). 
+
+Au vu de cette structure de corrélation très marquée, nous avons décidé de vérifier la pertinence d'utiliser une régression linéaire classique (Modèle MCO/LM) en calculant le Facteur d'Inflation de la Variance (VIF) *(Annexe 6)*. Les résultats ont confirmé nos craintes : une très forte multicolinéarité est présente au sein de nos données financières. Près de la moitié de nos variables présentent un VIF largement supérieur au seuil critique de 5, certaines dépassant même le seuil de 10 (notamment l'Épargne avec 13.66 et la Mensualité avec 12.25). Comme le souligne la littérature statistique, un tel niveau entraîne un risque majeur d'instabilité des coefficients et de biais dans les estimations. Ce constat nous a donc obligés à écarter le modèle linéaire classique, rendant indispensable le recours à des modèles de réduction de dimensionnalité.
+
+Pour contourner donc ce problème de colinéarité, nous avons alors réalisé une Analyse en Composantes Principales (ACP) *(Annexe 7)*. L'analyse des valeurs propres (eigenvalues) nous a montré que les deux premières dimensions résumaient à elles seules 45,84 % de la variance totale, et que les cinq premières (répondant au critère de Kaiser avec une valeur propre supérieure à 1) permettaient d'en capturer près de 81,8 %. Afin de lier cette structure à notre objectif, nous avons projeté notre variable cible, brute et transformée, en tant que variable quantitative supplémentaire (quanti.sup). La variable transformée en racine carrée s'aligne beaucoup mieux avec la structure latente de nos prédicteurs, affichant des corrélations supérieures (0.64 sur la Dim.2 et 0.53 sur la Dim.1) à celles de la variable brute (0.58 et 0.50). Cela confirme définitivement que notre transformation mathématique était le bon choix. Néanmoins, sachant que ces axes de l'ACP ne capturent pas l'intégralité de l'information, nous nous sommes appuyer sur des méthodes plus poussées pour optimiser la prédiction. Cela justifie pleinement notre décision d'appliquer, dans la suite de cette étude, les régressions sur composantes principales (PCR) et par moindres carrés partiels (PLS).
+
+# Régression sur composantes principales (PCR)
+
+Suite aux constats établis lors de l'exploration des données, notamment la présence d'une forte multicolinéarité justifiant l'abandon des méthodes linéaires classiques, nous avons entamé notre phase de modélisation prédictive par une Régression sur Composantes Principales (PCR).
+
+Dans un premier temps, afin d'établir un modèle de référence, nous avons appliqué cet algorithme sur notre variable cible brute, Montant_Pret. En générant une évaluation des performances d'apprentissage et de validation croisée (CV à 10 segments), nous avons pu analyser la robustesse de notre modèle *(Annexe 8)*. L'évolution du coefficient de détermination (R²) montre une progression significative jusqu'à l'intégration de la 7ème composante, stade où le modèle parvient à expliquer 77,61 % de la variance en apprentissage et 75,37 % en validation croisée sur ces mêmes 7 axes. L'erreur quadratique moyenne de prédiction (RMSEP) confirme cette dynamique en se stabilisant autour de 34 629 en apprentissage et 36 582 en validation croisée, des valeurs tout à fait logiques au vu de l'échelle et de la dispersion de nos montants de pret.
+
+Avant de confronter ce premier modèle à notre base de test, nous avons tenu à valider ce seuil optimal de 7 composantes en appliquant la méthode statistique du "one-sigma" *(Annexe 9)*. Cette approche a confirmé qu'un modèle à 7 dimensions constituait le choix parfait pour minimiser l'erreur tout en conservant plus d'information. L'étape suivante a consisté a élaborer le modèle de prediction que nous avions d'abord essayer sur notre base de données d'apprentissage et ensuite sur la base test. Les résultats obtenus sur la base de test s'avèrent satisfaisants : le R² se maintient à 0.7294 pour un RMSE de 47 410.
+
+Bien que ce modèle de référence appliqué à la variable brute surpasse déjà largement les standards, il est crucial de vérifier si notre choix de stabilisation par la racine carré est bon. Nous avons donc entraîné un second modèle PCR, cette fois-ci appliqué à la variable transformée en racine carrée (Montant_Pret_sqrt). L'analyse conjointe de la base d'apprentissage et de validation croisée *(Annexe 10)* révèle une amélioration de notre capacité prédictive. Dès la 7ème composante, le modèle explique désormais 85,36 % de la variance en apprentissage et 83,56 % en validation croisée. Parallèlement, la marge d'erreur (RMSEP) chute pour se stabiliser à 47 en apprentissage et près de 50 en validation croisée, traduisant une amélioration très fine de nos ajustements induit par la nouvelle échelle de la racine carrée.
+
+Nous avons ensuite soumis ce modèle transformé à la méthode algorithmique du "one-sigma" *(Annexe 11)*, confirmant le choix de 7 composantes. Les résultats obtenus affiche sur ces nouvelles données un R² de 0.8914. Le modèle parvient ainsi à expliquer de manière fiable près de 90 % de la variance des montants de prêts inconnus. Cette stabilité se confirme avec une erreur quadratique (RMSE) de 48, quasi identique à celle de l'entraînement.
+
+La combinaison de notre transformation initiale en racine carrée et de la régression sur composantes principales (PCR) s'impose donc comme une stratégie analytique efficace. Elle nous offre un modèle final à la fois simple (7 dimensions) et d'une puissance prédictive bonne en conditions réelles.
+
+# Régression des Moindres Carrés Partiels (PLS)
+
+Dans la continuité de notre démarche analytique et afin de surpasser les performances déjà satisfaisantes de notre modèle PCR, nous avons mis en œuvre une Régression par Moindres Carrés Partiels (PLS). Le choix de cette méthode ne relève pas du hasard : contrairement à la PCR qui construit ses axes uniquement en maximisant la variance des variables explicatives, la PLS présente l'avantage théorique majeur de construire ses composantes en maximisant directement la covariance entre les variables explicatives et la variable à expliquer. Cette approche est particulièrement bonne pour traiter des données présentant une forte colinéarité tout en ciblant plus l'information utile à la prédiction. Pour évaluer rigoureusement son apport, nous avons reproduit notre protocole en ajustant dans un premier temps un modèle PLS sur notre variable cible brute (Montant_Pret).
+
+Dès l'analyse simultanée des performances de ce premier modèle brut en apprentissage et en validation croisée (CV) *(Annexe 12)*, la supériorité de la dynamique d'apprentissage de la PLS s'est imposée. Avec cette méthode nous remarquons que les 2 premières composantes parvient déjà à expliquer 74,76% de la variance en apprentissage et 73,95 % en validation croisée. L'erreur quadratique moyenne (RMSE) se stabilise simultanément autour de 35350 en apprentissage et 36 004 en CV. L'application de la méthode statistique algorithmique du "one-sigma" *(Annexe 13)* a confirmé le choix à 2 composantes constituant le modèle optimal. En confrontant ce modèle à notre base de test, nous avons obtenu un coefficient de détermination (R²) de 0.7141 pour un RMSE de 48 724.
+
+Bien que ce modèle PLS de référence s'impose déjà comme une réussite, notre démarche méthodologique exigeait d'aller plus loin. Sachant que la transformation en racine carrée avait considérablement stabilisé la variance lors de notre étape PCR, nous avons entraîné un second modèle PLS appliqué à la variable transformée (Montant_Pret_sqrt). L'objectif était de vérifier si la synergie entre cette transformation mathématique et la méthode des moindres carrés partiels permettait une plus bonne prédiction.
+
+Les résultats obtenus sur ce modèle transformé ont dépassé tous les antérieures, révélant un modèle d'une puissance d'ajustement très bonne. L'analyse des courbes de performances globales *(Annexe 14)* montre que l'algorithme "one-sigma" a de nouveau sélectionné 2 composantes. Sur cette base, le modèle explique 84,35 % de la variance (R²) en phase d'apprentissage, pour un RMSE à 48,74. Surtout, la validation croisée suit cette tendance de manière quasi parfaite avec un R² de 82,48 % et une erreur de 51.58. 
+
+La vérité finale a consisté à soumettre ce modèle PLS transformé à notre base de test. Sur ces observations totalement inédites, l'algorithme a délivré ses prédictions avec un R² exceptionnel de 0.88 et un RMSE de 51. 
+
+Notre stratégie alliant transformation mathématique et parcimonie dimensionnelle absolue s'impose comme un succès total. Ce modèle PLS transformé constitue incontestablement l'architecture reine de notre étude.
+
+# Comparaison des modèles et interprétation des composantes
+
+Au terme de notre processus de modélisation, une confrontation directe entre la Régression sur Composantes Principales (PCR) et la Régression par Moindres Carrés Partiels (PLS) s'impose afin de désigner la méthode la plus pertinente pour notre étude. 
+
+Le modèle PCR optimisé nécessite la conservation de 7 composantes pour atteindre un R² d'environ 89 % sur les données de test. À l'inverse, le modèle PLS transformé parvient à une performance quasi similaire (près de 85 % de variance expliquée en test) en ne mobilisant que 2 seules composantes. Cela s'explique par la nature même de la méthode PLS, que l'analyse des « loadings » (poids des variables) met en lumière. En effet, les pondérations de la PCR demeurent strictement identiques, que l'on cherche à prédire la variable brute ou sa racine carrée, car la PCR se contente de résumer la variance des variables explicatives sans jamais tenir compte de la variable Y. La PLS, au contraire, oriente directement ses axes pour maximiser la covariance avec le montant du prêt. C'est ce qui lui permet de capturer l'essence du signal financier en seulement deux dimensions. A ce effet, le modèle PLS transformé s'impose comme le meilleur de notre étude.
+
+La validation de ce modèle PLS optimal à 2 composantes nous permet d'interpréter concrètement les facteurs sous-jacents qui déterminent l'octroi et le montant des crédits. L'observation des « loadings » de notre modèle plstrain_sqrt révèle de manière très claire les dynamiques financières captées par l'algorithme. Fait remarquable : bien que ces deux premières composantes n'expliquent qu'une faible part de la variance globale de nos variables explicatives, elles suffisent à expliquer plus de 87 % de la variance de notre variable cible en apprentissage *(Annexe 16)*. LA méthode PLS s'est donc parfaitement concentrer uniquement sur les variables ayant un véritable pouvoir prédictif sur le montant du prêt.
+
+La première composante de notre modèle PLS est très fortement dominée par des variables de flux financiers et de capacité d'endettement. Elle présente des coefficients positifs majeurs pour la mensualité du prêt (0.633), le ratio de dette sur revenu (0.485), le revenu mensuel (0.400) et les dépenses mensuelles (0.384). Cet axe représente donc la « Capacité Financiere » du profil emprunteur. L'interprétation est la suivante : plus un individu justifie de revenus élevés et d'une forte capacité à assumer des mensualités importantes, plus le montant du prêt octroyé augmente mécaniquement. Cet axe traduit la dimension purement quantitative du crédit bancaire.
+
+La deuxième composante oppose quant à elle fortement l'épargne (-0.487), le taux d'intérêt (-0.437) et le revenu mensuel (-0.424) à la durée du prêt en mois (0.394). Cet axe peut etre interpreter comme suit: d'un côté (coefficients négatifs), les individus disposant d'un fort capital d'épargne et de revenus confortables, qui accèdent à des taux d'intérêt plus faibles ; de l'autre (coefficients positifs), les emprunteurs qui doivent étaler leur crédit sur une très longue durée pour compenser un manque d'apport ou des revenus plus contraints. Cette composante vient donc nuancer et ajuster la prédiction du montant du prêt en intégrant les conditions d'emprunt et la sécurité financière préalable (l'épargne) de l'individu.
+
+En conclusion, notre modèle PLS appliquée à la variable transformée a su synthétiser la complexité de notre base de données en deux axes fondamentaux : la force de frappe financière (revenus/mensualités) et la structuration du risque (épargne/durée/taux) . 
+
+
+# Conclusion
+
+L’objectif de cette étude était d’élaborer un modèle prédictif robuste capable d’estimer avec précision le montant des prêts bancaires accordés, à partir d'une base de données caractérisée par une forte asymétrie et une importante multicolinéarité. Face à ces défis, l'utilisation d'une régression linéaire classique s'avérait impossible, risquant de produire des estimateurs instables et des prédictions biaisées. Pour contourner cet obstacle, notre démarche s'est articulée autour de méthodes avancées de réduction de dimension (PCR et PLS), couplées à une rigueur méthodologique stricte afin d'éviter le piège de ce type d'algorithme : le sur-apprentissage.
+
+La première grande victoire de notre modélisation a résidé dans la préparation mathématique de notre cible. La transformation de la variable à expliquer en sa racine carrée a permis de lisser les valeurs extrêmes et de stabiliser la variance de nos erreurs. Couplée à la méthode de sélection "one-sigma", cette étape nous a garanti une base d'apprentissage saine. Alors que la Régression sur Composantes Principales (PCR) a nécessité la conservation de 7 axes pour obtenir des performances satisfaisantes, la Régression par Moindres Carrés Partiels (PLS) s'est imposée comme la bonne méthode de ce projet. En orientant directement ses composantes pour maximiser la covariance avec la cible, le modèle PLS sur la variable transformé a atteint un niveau d'optimisation importante : avec seulement 2 dimensions, il est parvenu à expliquer près de 85 % de la variance sur notre base de test, tout en maintenant une marge d'erreur extrêmement resserrée.
+
+L’analyse de nos deux axes a mis en lumière que l’octroi d’un crédit se structure autour de deux dynamiques opposées mais complémentaires : d'une part, le « Capacité financiere » (la force de frappe de l'emprunteur liée à ses revenus et sa capacité d'endettement) ; et d'autre part, la « structuration du risque » (la sécurité d'une forte épargne face à l'étalement de la dette sur de longues durées).
+
+En définitive, cette étude démontre avec éclat que la performance en Data Science ne réside pas dans la complexité de la méthode, mais dans l'intelligence de la démarche. La combinaison d'une transformation de variable pertinente, d'un algorithme PLS et d'une sélection rigoureuse des composantes nous a permis d'avoir un modèle non seulement précis et généralisable, mais également parfaitement transparent et exploitable pour l'analyse du risque bancaire.
+
+# Annexe
+
+```{r}
+# Pour la reproductibilité
+set.seed(123) 
+# les packages
+library(ggplot2)
+library(dplyr)
+library(FactoMineR)
+library(factoextra)
+library(patchwork)
+library(GGally)
+library(car)
+library(pls)
+library(EnvStats)
+library(tibble)
+library(moments)
+library(corrplot)
+```
+
+
+
+```{r}
+## Importation des données
+library(readr)
+data <- read_csv("data/DATA.csv")
+data <- subset(data, select = -c(Type_Pret, Sexe, Region))
+
+```
+
+
+```{r}
+#Séparation en Apprentissage (70%) et Test (30%)
+
+index <- sample(1:nrow(data), 0.7 * nrow(data))
+data_train <- data[index, ]
+data_test <- data[-index, ]
+```
+
+## Annexe 1 : Distribution de la variable montant du pret
+
+```{r}
+ 
+bin_w <- 10000
+
+# Sur la base totale
+ggplot(data, aes(x = Montant_Pret)) +
+  geom_histogram(binwidth = bin_w, fill = "darkblue", color = "white") +
+  labs(title = "Distribution du Montant du Pret sur la base totale")
+
+# sur la base d'apprentissage
+ggplot(data_train, aes(x = Montant_Pret)) +
+  geom_histogram(binwidth = bin_w, fill = "darkblue", color = "white") +
+  labs(title = "Distribution du Montant du Pret sur la base d'apprentissage")
+
+# sur la base de test
+ggplot(data_test, aes(x = Montant_Pret)) +
+  geom_histogram(binwidth = bin_w, fill = "darkblue", color = "white") +
+  labs(title = "Distribution du Montant du Pret sur la base de test")
+```
+
+
+```{r}
+## Visualisation des variables explicatives
+par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
+
+# Liste des variables quantitatives
+vars_X <- c("Age", "Revenu_Mensuel", "Depenses_Mensuelles", "Epargne",
+                 "Score_Credit", "Duree_Pret_Mois", "Mensualite_Pret",
+                 "Taux_Interet_Pret", "Ratio_Dette_Revenu",
+                 "Ratio_Epargne_Revenu")
+
+
+
+# Histogrammes 
+for (v in vars_X) {
+  hist(data[[v]],
+       main = paste("Histogramme de", v),
+       xlab = v,
+       ylab = "Fréquence",
+       col = "blue",
+       border = "white")
+}
+
+```
+
+
+```{r}
+## transformation en racine carré
+# base entiere
+data_totale <- data |> mutate(Montant_Pret_sqrt = sqrt(Montant_Pret)) |> relocate(Montant_Pret_sqrt, .before = 1) |> relocate(Montant_Pret, .before = 2)
+
+# base d'apprentissage
+data_train2 <- data_train |> mutate(Montant_Pret_sqrt = sqrt(Montant_Pret)) |> relocate(Montant_Pret_sqrt, .before = 1) |> relocate(Montant_Pret, .before = 2)
+
+# base de test
+data_test2 <- data_test |> mutate(Montant_Pret_sqrt = sqrt(Montant_Pret)) |> relocate(Montant_Pret_sqrt, .before = 1) |> relocate(Montant_Pret, .before = 2)
+
+```
+
+## Annexe 2 : Distribution de la racine carré du montant du pret
+
+```{r}
+
+bin_w <- 20
+
+# Sur la base totale
+ggplot(data_totale, aes(x = Montant_Pret_sqrt)) +
+  geom_histogram(binwidth = bin_w, fill = "darkblue", color = "white") +
+  labs(title = "Distribution du racine carré du Montant de Pret sur la base totale")
+
+# sur la base d'apprentissage
+ggplot(data_train2, aes(x = Montant_Pret_sqrt)) +
+  geom_histogram(binwidth = bin_w, fill = "darkblue", color = "white") +
+  labs(title = "Distribution du racine carré du Montant du Pret sur la base d'apprentissage")
+
+# sur la base de test
+ggplot(data_test2, aes(x = Montant_Pret_sqrt)) +
+  geom_histogram(binwidth = bin_w, fill = "darkblue", color = "white") +
+  labs(title = "Distribution du racine carré du montant du pret sur la base de test")
+
+```
+
+## Annexe 3 : Détection des valeurs atypiques (Boxplots)
+
+Sans racine carrée
+```{r}
+
+quanti_vars <- c("Age", "Revenu_Mensuel", "Depenses_Mensuelles", "Epargne",
+                 "Montant_Pret", "Duree_Pret_Mois", "Mensualite_Pret",
+                 "Taux_Interet_Pret", "Ratio_Dette_Revenu", "Score_Credit",
+                 "Ratio_Epargne_Revenu")
+
+par(mfrow = c(3, 2), mar = c(3, 3, 2, 1))
+
+# sur la base totale
+# Boucle pour tracer les boxplots
+for (v in quanti_vars) {
+  boxplot(data[[v]],
+          main = paste("Boxplot de", v),
+         
+          col = "lightblue",
+          border = "blue")
+}
+# depenses , epargne, montant pret et mensualité
+rosnerTest(data$Depenses_Mensuelles, k = 10) # 0
+rosnerTest(data$Epargne, k = 10) # 0
+rosnerTest(data$Montant_Pret, k = 10) # 4
+rosnerTest(data$Mensualite_Pret, k = 10) # 0
+
+# sur la base d'apprentissage
+for (v in quanti_vars) {
+  boxplot(data_train[[v]],
+          main = paste("Boxplot de", v),
+         
+          col = "lightblue",
+          border = "blue")
+}
+# revenu s'est ajouté au lot
+rosnerTest(data_train$Depenses_Mensuelles, k = 10) # 0
+rosnerTest(data_train$Epargne, k = 10) # 1
+rosnerTest(data_train$Montant_Pret, k = 10) # 4
+rosnerTest(data_train$Mensualite_Pret, k = 10) # 0
+rosnerTest(data_train$Revenu_Mensuel, k = 10) # 0
+
+
+# sur la base de test
+for (v in quanti_vars) {
+  boxplot(data_test[[v]],
+          main = paste("Boxplot de", v),
+         
+          col = "lightblue",
+          border = "blue")
+}
+# meme chose que la base initiale
+rosnerTest(data_test$Depenses_Mensuelles, k = 10) # 1
+rosnerTest(data_test$Epargne, k = 10) # 0
+rosnerTest(data_test$Montant_Pret, k = 10) # 2
+rosnerTest(data_test$Mensualite_Pret, k = 10) # 0
+```
+
+Avec racine carrée
+
+```{r}
+
+# sur la base totale
+# Boucle pour tracer les boxplots
+  boxplot(data_totale$Montant_Pret_sqrt,
+          main = "Boxplot du carré du montant du pret",
+         
+          col = "lightblue",
+          border = "blue")
+
+
+# sur la base d'apprentissage
+  boxplot(data_train2$Montant_Pret_sqrt,
+          main = "Boxplot du carré du montant du pret",
+         
+          col = "lightblue",
+          border = "blue")
+
+
+# sur la base de test
+  boxplot(data_test2$Montant_Pret_sqrt,
+          main = "Boxplot du carré du montant du pret",
+         
+          col = "lightblue",
+          border = "blue")
+
+
+```
+
+## Annexe 4 : Distribution des résidus
+
+Sans racine 
+
+```{r}
+mod_lm <- lm(Montant_Pret ~ . -Montant_Pret_sqrt, data = data_totale)
+
+res <- residuals(mod_lm)
+
+hist(res, 
+     breaks = 30, 
+     probability = TRUE,
+     main = "Résidus du modèle sans transformation",
+     col = "lightblue",  
+     xlab = "Résidus")
+
+# Ajouter la courbe de densité normale
+curve(dnorm(x, mean = mean(res), sd = sd(res)),
+      col = "red", lwd = 2, add = TRUE)
+
+shapiro.test(res)
+```
+
+
+Avec racine 
+
+```{r}
+mode_lm <- lm(Montant_Pret_sqrt ~ . -Montant_Pret, data = data_totale)
+
+res <- residuals(mode_lm)
+hist(res, 
+     breaks = 30, 
+     probability = TRUE,
+     main = "Résidus du modèle avec transformation",
+     col = "lightblue", 
+     xlab = "Résidus")
+
+# Ajouter la courbe de densité normale
+curve(dnorm(x, mean = mean(res), sd = sd(res)),
+      col = "red", lwd = 2, add = TRUE)
+
+shapiro.test(res)
+```
+
+## Annexe 5: Matrice de correlation
+
+```{r}
+
+cor_matrix <- cor(data_totale, use = "complete.obs", method = "pearson")
+
+par(mfrow = c(1,1))
+
+corrplot::corrplot(round(cor_matrix, 2), 
+                   method = "color", 
+                   type = "upper", 
+                   addCoef.col = "black",
+                   tl.cex = 0.4, 
+                   tl.col = "black", 
+                   number.cex = 0.4) 
+
+```
+
+## Annexe 6: Calcul du VIF
+```{r}
+vif(mode_lm)
+```
+
+## Annexe 7: ACP
+```{r}
+
+Y <- c("Montant_Pret", "Montant_Pret_sqrt")
+
+respca <- PCA(data_totale, 
+                  scale.unit = TRUE, 
+                  quanti.sup = which(names(data_totale) %in% Y), 
+                  graph = TRUE)
+round(respca$eig,digit=2)
+round(respca$quanti.sup$coord, 2)
+```
+
+
+## Annexe 8: Modele PCR : Sans racine carré
+
+```{r}
+n = nrow(data_train2)         # Nombre d'observations
+p = ncol(data_train2) - 2     # Nombre de prédicteurs (-2 car 2 Y)
+```
+
+Performance d'apprentissage
+```{r}
+pcrtrain <- pcr(Montant_Pret ~ . -Montant_Pret_sqrt,
+                data = data_train2,
+                ncomp = min(n - 1, p), 
+                scale = TRUE)
+
+
+summary(pcrtrain,
+        estimate = "train")
+
+# R2
+
+R2(pcrtrain,
+   estimate = "train")
+
+validationplot(pcrtrain,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PCR sans racine (train)",
+               estimate = "train")
+
+# RMSE
+RMSEP(pcrtrain,
+      estimate = "train")
+
+validationplot(pcrtrain,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PCR sans racine (train)",
+               estimate = "train")
+
+```
+
+CROSS VALIDATION
+
+```{r}
+pcrtrain <- pcr(
+  Montant_Pret ~ . - Montant_Pret_sqrt,
+  data = data_train2,
+  ncomp = min(n - 1, p),
+  scale = TRUE,
+  validation = "CV"
+)
+
+summary(pcrtrain,
+        estimate = "CV")
+
+# R2
+
+R2(pcrtrain,
+   estimate = "CV")
+
+validationplot(pcrtrain,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PCR sans racine (CV)",
+               estimate = "CV")
+
+# RMSE
+RMSEP(pcrtrain,
+      estimate = "CV")
+
+validationplot(pcrtrain,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PCR sans racine(CV)",
+               estimate = "CV")
+
+```
+
+## Annexe 9: Prédiction : sans racine carré
+
+Selection de composantes avec onesigma
+```{r}
+comp_pcr <- selectNcomp(pcrtrain, method = "onesigma", plot = TRUE) 
+## 7 composantes
+```
+
+Sur la base train
+
+```{r}
+# 1. PRÉDICTION sur train (ncomp optimal)
+pred_pcr_train <- predict(pcrtrain, 
+                          newdata = data_train2, 
+                          ncomp = comp_pcr)
+
+# 2. MÉTRIQUES GLOBALES 
+r2_train <- 1 - sum((data_train2$Montant_Pret - pred_pcr_train)^2) / 
+                 sum((data_train2$Montant_Pret - mean(data_train2$Montant_Pret))^2)
+
+rmse_train <- sqrt(mean((data_train2$Montant_Pret - pred_pcr_train)^2))
+
+print(paste("TRAIN : R² =", round(r2_train, 4), "| RMSE =", round(rmse_train, 0)))
+
+```
+
+Sur la base de test
+
+```{r}
+# 1. PRÉDICTION sur TEST 
+pred_pcr_test <- predict(pcrtrain, 
+                         newdata = data_test2,
+                         ncomp = comp_pcr)
+
+# 2. MÉTRIQUES GLOBALES TEST
+r2_test <- 1 - sum((data_test2$Montant_Pret - pred_pcr_test)^2) / 
+                sum((data_test2$Montant_Pret - mean(data_test2$Montant_Pret))^2)
+
+rmse_test <- sqrt(mean((data_test2$Montant_Pret - pred_pcr_test)^2))
+
+print(paste("TEST : R² =", round(r2_test, 4), "| RMSE =", round(rmse_test, 0)))
+```
+
+
+
+## Annexe 10: Modele PCR : Avec racine carré
+Performance d'apprentissage
+
+```{r}
+pcrtrain_sqrt <- pcr(Montant_Pret_sqrt ~ . -Montant_Pret,
+                data = data_train2,
+                ncomp = min(n - 1, p), 
+                scale = TRUE)
+
+
+summary(pcrtrain_sqrt,
+        estimate = "train")
+
+# R2
+
+R2(pcrtrain_sqrt,
+   estimate = "train")
+
+validationplot(pcrtrain_sqrt,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PCR sans racine (train)",
+               estimate = "train")
+
+# RMSE
+RMSEP(pcrtrain_sqrt,
+      estimate = "train")
+
+validationplot(pcrtrain_sqrt,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PCR sans racine (train)",
+               estimate = "train")
+
+```
+
+CROSS VALIDATION
+
+```{r}
+pcrtrain_sqrt <- pcr(
+  Montant_Pret_sqrt ~ . - Montant_Pret,
+  data = data_train2,
+  ncomp = min(n - 1, p),
+  scale = TRUE,
+  validation = "CV"
+)
+
+summary(pcrtrain_sqrt,
+        estimate = "CV")
+
+# R2
+
+R2(pcrtrain_sqrt,
+   estimate = "CV")
+
+validationplot(pcrtrain_sqrt,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PCR sans racine (CV)",
+               estimate = "CV")
+
+# RMSE
+RMSEP(pcrtrain_sqrt,
+      estimate = "CV")
+
+validationplot(pcrtrain_sqrt,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PCR sans racine (CV)",
+               estimate = "CV")
+
+```
+
+
+## Annexe 11: Prédiction :Avec racine carré
+
+Selection DE COMPOSANTES
+```{r}
+comp_pcr_ <- selectNcomp(pcrtrain_sqrt, method = "onesigma", plot = TRUE) 
+## 7 composantes
+```
+
+Sur la base train
+
+```{r}
+# 1. PRÉDICTION sur train 
+pred_pcr_train_sqrt <- predict(pcrtrain_sqrt, 
+                          newdata = data_train2, 
+                          ncomp = comp_pcr_)
+
+# 2. MÉTRIQUES GLOBALES 
+r2_train <- 1 - sum((data_train2$Montant_Pret_sqrt - pred_pcr_train_sqrt)^2) / 
+                 sum((data_train2$Montant_Pret_sqrt - mean(data_train2$Montant_Pret_sqrt))^2)
+
+rmse_train <- sqrt(mean((data_train2$Montant_Pret_sqrt - pred_pcr_train_sqrt)^2))
+
+print(paste("TRAIN_sqrt : R² =", round(r2_train, 4), "| RMSE =", round(rmse_train, 0)))
+
+```
+
+Sur la base de test
+
+```{r}
+# 1. PRÉDICTION sur TEST 
+pred_pcr_test_sqrt <- predict(pcrtrain_sqrt, 
+                         newdata = data_test2,
+                         ncomp = comp_pcr_)
+
+# 2. MÉTRIQUES GLOBALES TEST
+r2_test <- 1 - sum((data_test2$Montant_Pret_sqrt - pred_pcr_test_sqrt)^2) / 
+                sum((data_test2$Montant_Pret_sqrt - mean(data_test2$Montant_Pret_sqrt))^2)
+
+rmse_test <- sqrt(mean((data_test2$Montant_Pret_sqrt - pred_pcr_test_sqrt)^2))
+
+print(paste("TEST_sqrt : R² =", round(r2_test, 4), "| RMSE =", round(rmse_test, 0)))
+```
+
+## Annexe 12: Modele PLS : Sans racine carré
+
+Performance d'apprentissage
+
+```{r}
+plstrain <- plsr(Montant_Pret ~ . -Montant_Pret_sqrt,
+                data = data_train2,
+                ncomp = min(n - 1, p), 
+                scale = TRUE)
+
+
+summary(plstrain,
+        estimate = "train")
+
+# R2
+
+R2(plstrain,
+   estimate = "train")
+
+validationplot(plstrain,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PLS sans racine (train)",
+               estimate = "train")
+
+# RMSE
+RMSEP(plstrain,
+      estimate = "train")
+
+validationplot(plstrain,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PLS sans racine (train)",
+               estimate = "train")
+
+```
+
+CROSS VALIDATION
+
+```{r}
+plstrain <- plsr(
+  Montant_Pret ~ . - Montant_Pret_sqrt,
+  data = data_train2,
+  ncomp = min(n - 1, p),
+  scale = TRUE,
+  validation = "CV"
+)
+
+summary(plstrain,
+        estimate = "CV")
+
+# R2
+
+R2(plstrain,
+   estimate = "CV")
+
+validationplot(plstrain,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PLS sans racine(CV)",
+               estimate = "CV")
+
+# RMSE
+RMSEP(plstrain,
+      estimate = "CV")
+
+validationplot(plstrain,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PLS sans racine(CV)",
+               estimate = "CV")
+
+```
+
+## Annexe 13 : Prédiction : Sans racine
+
+Selection de composantes
+```{r}
+comp_pls <- selectNcomp(plstrain, method = "onesigma", plot = TRUE) 
+## 2 composantes
+```
+
+Sur la base train
+
+```{r}
+# 1. PRÉDICTION sur train 
+pred_pls_train <- predict(plstrain,
+                          newdata = data_train2, 
+                          ncomp = comp_pls)
+
+# 2. MÉTRIQUES GLOBALES 
+r2_train <- 1 - sum((data_train2$Montant_Pret - pred_pls_train)^2) / 
+                 sum((data_train2$Montant_Pret - mean(data_train2$Montant_Pret))^2)
+
+rmse_train <- sqrt(mean((data_train2$Montant_Pret - pred_pls_train)^2))
+
+print(paste("TRAIN : R² =", round(r2_train, 4), "| RMSE =", round(rmse_train, 0)))
+
+```
+
+
+Sur la base de test
+
+```{r}
+# 1. PRÉDICTION sur TEST 
+pred_pls_test <- predict(plstrain, 
+                         newdata = data_test2,
+                         ncomp = comp_pls)
+
+# 2. MÉTRIQUES GLOBALES TEST
+r2_test <- 1 - sum((data_test2$Montant_Pret - pred_pls_test)^2) / 
+                sum((data_test2$Montant_Pret - mean(data_test2$Montant_Pret))^2)
+
+rmse_test <- sqrt(mean((data_test2$Montant_Pret - pred_pls_test)^2))
+
+print(paste("TEST : R² =", round(r2_test, 4), "| RMSE =", round(rmse_test, 0)))
+```
+
+
+## Annexe 14: Modele PLS : Avec racine carré
+Performance d'apprentissage
+
+```{r}
+plstrain_sqrt <- plsr(Montant_Pret_sqrt ~ . -Montant_Pret,
+                data = data_train2,
+                ncomp = min(n - 1, p), 
+                scale = TRUE)
+
+
+summary(plstrain_sqrt,
+        estimate = "train")
+
+# R2
+
+R2(plstrain_sqrt,
+   estimate = "train")
+
+validationplot(plstrain_sqrt,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PLS sans racine(train)",
+               estimate = "train")
+
+# RMSE
+RMSEP(plstrain_sqrt,
+      estimate = "train")
+
+validationplot(plstrain_sqrt,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PLS sans racine(train)",
+               estimate = "train")
+
+```
+
+CROSS VALIDATION
+
+```{r}
+plstrain_sqrt <- plsr(
+  Montant_Pret_sqrt ~ . - Montant_Pret,
+  data = data_train2,
+  ncomp = min(n - 1, p),
+  scale = TRUE,
+  validation = "CV"
+)
+
+summary(plstrain_sqrt,
+        estimate = "CV")
+
+# R2
+
+R2(plstrain_sqrt,
+   estimate = "CV")
+
+validationplot(plstrain_sqrt,
+               val.type="R2",
+               type="b",
+               main = "Courbe de R² selon le nombre de composantes de la PCR sans racine(CV)",
+               estimate = "CV")
+
+# RMSE
+RMSEP(plstrain_sqrt,
+      estimate = "CV") 
+
+validationplot(plstrain_sqrt,
+               val.type="RMSEP",
+               type="b",
+               main = "Courbe de RMSEP selon le nombre de composantes de la PLS sans racine(CV)",
+               estimate = "CV")
+
+```
+
+
+## Annexe 15 : Prédiction : Avec racine
+
+Selection de composantes
+```{r}
+comp_pls_ <- selectNcomp(plstrain_sqrt, method = "onesigma", plot = TRUE) 
+## 2 composantes
+```
+
+Sur la base train
+
+```{r}
+# 1. PRÉDICTION sur train
+pred_pls_train_sqrt <- predict(plstrain_sqrt, 
+                          newdata = data_train2, 
+                          ncomp = comp_pls_)
+
+# 2. MÉTRIQUES GLOBALES 
+r2_train <- 1 - sum((data_train2$Montant_Pret_sqrt - pred_pls_train_sqrt)^2) / 
+                 sum((data_train2$Montant_Pret_sqrt - mean(data_train2$Montant_Pret_sqrt))^2)
+
+rmse_train <- sqrt(mean((data_train2$Montant_Pret_sqrt - pred_pls_train_sqrt)^2))
+
+print(paste("TRAIN_sqrt : R² =", round(r2_train, 4), "| RMSE =", round(rmse_train, 0)))
+
+```
+
+Sur la base de test
+
+```{r}
+# 1. PRÉDICTION sur TEST 
+pred_pls_test_sqrt <- predict(plstrain_sqrt, 
+                         newdata = data_test2,
+                         ncomp = comp_pls_)
+
+# 2. MÉTRIQUES GLOBALES TEST
+r2_test <- 1 - sum((data_test2$Montant_Pret_sqrt - pred_pls_test_sqrt)^2) / 
+                sum((data_test2$Montant_Pret_sqrt - mean(data_test2$Montant_Pret_sqrt))^2)
+
+rmse_test <- sqrt(mean((data_test2$Montant_Pret_sqrt - pred_pls_test_sqrt)^2))
+
+print(paste("TEST_sqrt : R² =", round(r2_test, 4), "| RMSE =", round(rmse_test, 0)))
+```
+
+
+
+## Annexe 16 : Comparaison des modèles et interprétation des composantes 
+
+```{r}
+loadings(pcrtrain)
+loadings(pcrtrain_sqrt)
+loadings(plstrain)
+loadings(plstrain_sqrt)
+```
+
